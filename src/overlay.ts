@@ -1,0 +1,371 @@
+/** @format */
+
+import { BrowserWindow, globalShortcut, nativeImage, screen, session, shell } from 'electron';
+import Store from 'electron-store';
+
+export interface DesktopAccountProfile {
+	slot: string;
+	id?: string;
+	username?: string;
+	globalName?: string;
+	avatar?: string;
+	lastActive: number;
+}
+
+export interface OverlayRuntimeState {
+	ghostMode: boolean;
+	opacity: number;
+}
+
+let overlayWin: BrowserWindow | null = null;
+let overlayGhostMode = false;
+let overlayOpacity = 1;
+let overlayHoveringInteractive = false;
+
+function broadcastOverlayState() {
+	const state: OverlayRuntimeState = {
+		ghostMode: overlayGhostMode,
+		opacity: overlayOpacity,
+	};
+	for (const bw of BrowserWindow.getAllWindows()) {
+		if (!bw.isDestroyed()) {
+			bw.webContents.send('overlay:state', state);
+		}
+	}
+}
+
+export function getOverlayState(): OverlayRuntimeState {
+	return {
+		ghostMode: overlayGhostMode,
+		opacity: overlayOpacity,
+	};
+}
+
+export function setOverlayGhostMode(enabled: boolean): OverlayRuntimeState {
+	overlayGhostMode = Boolean(enabled);
+	if (overlayWin && !overlayWin.isDestroyed()) {
+		try {
+			if (overlayGhostMode && !overlayHoveringInteractive) {
+				overlayWin.setIgnoreMouseEvents(true, { forward: true });
+			} else {
+				overlayWin.setIgnoreMouseEvents(false);
+			}
+		} catch {}
+	}
+	broadcastOverlayState();
+	return getOverlayState();
+}
+
+export function setOverlayInteractiveHover(hovering: boolean): OverlayRuntimeState {
+	overlayHoveringInteractive = Boolean(hovering);
+	if (overlayWin && !overlayWin.isDestroyed()) {
+		try {
+			if (overlayGhostMode && !overlayHoveringInteractive) {
+				overlayWin.setIgnoreMouseEvents(true, { forward: true });
+			} else {
+				overlayWin.setIgnoreMouseEvents(false);
+			}
+		} catch {}
+	}
+	return getOverlayState();
+}
+
+export function setOverlayOpacity(opacity: number): OverlayRuntimeState {
+	const clamped = Math.max(0.3, Math.min(1, Number(opacity) || 1));
+	overlayOpacity = Math.round(clamped * 100) / 100;
+	if (overlayWin && !overlayWin.isDestroyed()) {
+		try {
+			overlayWin.setOpacity(overlayOpacity);
+		} catch {}
+	}
+	broadcastOverlayState();
+	return getOverlayState();
+}
+
+export function getActivePartition(store: Store): string {
+	const slot = (store.get('activeAccountSlot') as string) || 'default';
+	return slot === 'default' ? 'persist:crea-accent' : `persist:crea-accent-${slot}`;
+}
+
+export function getAccountsState(store: Store): { activeSlot: string; accounts: DesktopAccountProfile[] } {
+	const activeSlot = (store.get('activeAccountSlot') as string) || 'default';
+	const stored = (store.get('desktopAccounts') as DesktopAccountProfile[] | undefined) || [];
+	const bySlot = new Map<string, DesktopAccountProfile>();
+	bySlot.set('default', { slot: 'default', lastActive: Date.now() });
+	for (const acc of stored) {
+		if (acc && typeof acc.slot === 'string') {
+			bySlot.set(acc.slot, acc);
+		}
+	}
+	if (!bySlot.has(activeSlot)) {
+		bySlot.set(activeSlot, { slot: activeSlot, lastActive: Date.now() });
+	}
+	const accounts = Array.from(bySlot.values());
+	if (stored.length !== accounts.length) {
+		store.set('desktopAccounts', accounts);
+	}
+	return { activeSlot, accounts };
+}
+
+export function syncAccountSlotProfile(store: Store, profile: { id?: string; username?: string; globalName?: string; avatar?: string }) {
+	const { activeSlot, accounts } = getAccountsState(store);
+	const next = accounts.map((acc) =>
+		acc.slot === activeSlot
+			? {
+					...acc,
+					...profile,
+					lastActive: Date.now(),
+				}
+			: acc
+	);
+	store.set('desktopAccounts', next);
+	return { activeSlot, accounts: next };
+}
+
+export async function removeAccountSlot(store: Store, slot: string) {
+	if (slot === 'default') return getAccountsState(store);
+	const partName = `persist:crea-accent-${slot}`;
+	try {
+		await session.fromPartition(partName).clearStorageData();
+	} catch {}
+	const { activeSlot, accounts } = getAccountsState(store);
+	const nextAccounts = accounts.filter((a) => a.slot !== slot);
+	store.set('desktopAccounts', nextAccounts);
+	if (activeSlot === slot) {
+		store.set('activeAccountSlot', 'default');
+	}
+	return getAccountsState(store);
+}
+
+const FALLBACK_HEADER_SCRIPT = `
+(() => {
+	if (document.getElementById('crea-electron-fallback-header') || document.querySelector('header')) return;
+	document.documentElement.classList.add('is-electron');
+	const bar = document.createElement('div');
+	bar.id = 'crea-electron-fallback-header';
+	bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:50px;z-index:2147483647;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:#09090b;border-bottom:1px solid rgba(255,255,255,0.08);color:#f4f4f5;font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:700;-webkit-app-region:drag;user-select:none;';
+	bar.innerHTML = \`
+		<div style="display:flex;align-items:center;gap:8px;">
+			<span style="color:#a4b795;font-weight:800;letter-spacing:0.04em;">CREA-ACCENT</span>
+			<span style="opacity:0.5;font-weight:500;font-size:12px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">\${document.title || window.location.hostname}</span>
+		</div>
+		<div style="display:flex;align-items:center;gap:14px;-webkit-app-region:no-drag;">
+			<button id="xx-min" style="background:none;border:none;color:#f4f4f5;cursor:pointer;padding:4px;font-size:16px;line-height:1;">&#8722;</button>
+			<button id="xx-max" style="background:none;border:none;color:#f4f4f5;cursor:pointer;padding:4px;font-size:13px;line-height:1;">&#9633;</button>
+			<button id="xx-close" style="background:none;border:none;color:#f4f4f5;cursor:pointer;padding:4px;font-size:18px;line-height:1;">&times;</button>
+		</div>
+	\`;
+	document.body.style.paddingTop = '50px';
+	document.body.appendChild(bar);
+	document.getElementById('xx-min')?.addEventListener('click', () => window.electron?.minimize?.());
+	document.getElementById('xx-max')?.addEventListener('click', () => window.electron?.maximize?.());
+	document.getElementById('xx-close')?.addEventListener('click', () => window.electron?.close?.());
+})();
+`;
+
+export function configureFramelessWindow(
+	targetWin: BrowserWindow,
+	opts: {
+		preloadPath: string;
+		iconPath: string;
+		getPartition: () => string;
+		shouldOpenExternal: () => boolean;
+	}
+) {
+	try {
+		targetWin.setMenuBarVisibility(false);
+		targetWin.removeMenu();
+		targetWin.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
+			if (permission === 'notifications') return callback(true);
+			callback(true);
+		});
+		targetWin.webContents.session.setPermissionCheckHandler((_webContents, permission) => {
+			if (permission === 'notifications') return true;
+			return true;
+		});
+	} catch {}
+
+	targetWin.webContents.setWindowOpenHandler(({ url }) => {
+		const forceExternal = url.includes('external=true');
+		const isInternal =
+			!forceExternal &&
+			(url.includes('crea-accent.app') ||
+				url.includes('localhost') ||
+				url.includes('login.microsoftonline.com') ||
+				url.includes('accounts.google.com') ||
+				url.includes('discord.com/oauth2') ||
+				url.includes('discordapp.com/oauth2'));
+
+		if (forceExternal || (opts.shouldOpenExternal() && !isInternal)) {
+			shell.openExternal(url).catch(() => {});
+			return { action: 'deny' };
+		}
+
+		return {
+			action: 'allow',
+			overrideBrowserWindowOptions: {
+				parent: undefined,
+				modal: false,
+				frame: false,
+				roundedCorners: true,
+				transparent: false,
+				resizable: true,
+				autoHideMenuBar: true,
+				backgroundColor: '#09090b',
+				icon: opts.iconPath,
+				webPreferences: {
+					preload: opts.preloadPath,
+					contextIsolation: true,
+					nodeIntegration: false,
+					sandbox: false,
+					backgroundThrottling: true,
+					spellcheck: false,
+					partition: opts.getPartition(),
+				},
+			},
+		};
+	});
+
+	targetWin.webContents.on('before-input-event', (event, input) => {
+		if (input.type !== 'keyDown') return;
+		const key = input.key.toLowerCase();
+		if (((input.control || input.meta) && !input.alt && key === 'r') || input.key === 'F5') {
+			event.preventDefault();
+			if (input.shift) {
+				targetWin.webContents.reloadIgnoringCache();
+			} else {
+				targetWin.webContents.reload();
+			}
+		}
+	});
+
+	targetWin.webContents.on('did-finish-load', () => {
+		const currentUrl = targetWin.webContents.getURL();
+		if (!currentUrl || currentUrl.startsWith('file://') || currentUrl.startsWith('devtools://')) return;
+		targetWin.webContents.executeJavaScript(FALLBACK_HEADER_SCRIPT).catch(() => {});
+	});
+}
+
+export function toggleOverlayWindow(opts: { webUrl: string; preloadPath: string; iconPath: string; partition: string; shouldOpenExternal?: () => boolean }): boolean {
+	if (overlayWin && !overlayWin.isDestroyed()) {
+		overlayWin.close();
+		overlayWin = null;
+		try {
+			globalShortcut.unregister('Alt+Shift+O');
+		} catch {}
+		return false;
+	}
+
+	const { workArea } = screen.getPrimaryDisplay();
+	const width = 400;
+	const height = 560;
+	const appIcon = nativeImage.createFromPath(opts.iconPath);
+
+	overlayWin = new BrowserWindow({
+		width,
+		height,
+		x: workArea.x + workArea.width - width - 24,
+		y: workArea.y + 48,
+		roundedCorners: true,
+		frame: false,
+		transparent: false,
+		resizable: true,
+		autoHideMenuBar: true,
+		alwaysOnTop: true,
+		skipTaskbar: false,
+		backgroundColor: '#09090b',
+		icon: appIcon.isEmpty() ? opts.iconPath : appIcon,
+		webPreferences: {
+			preload: opts.preloadPath,
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: false,
+			backgroundThrottling: true,
+			spellcheck: false,
+			partition: opts.partition,
+		},
+	});
+
+	try {
+		if (!appIcon.isEmpty()) overlayWin.setIcon(appIcon);
+		overlayWin.setOpacity(overlayOpacity);
+		if (overlayGhostMode) {
+			overlayWin.setIgnoreMouseEvents(true, { forward: true });
+		}
+	} catch {}
+
+	configureFramelessWindow(overlayWin, {
+		preloadPath: opts.preloadPath,
+		iconPath: opts.iconPath,
+		getPartition: () => opts.partition,
+		shouldOpenExternal: opts.shouldOpenExternal || (() => true),
+	});
+
+	overlayWin.setAlwaysOnTop(true, 'floating');
+	overlayWin.loadURL(`${opts.webUrl}/overlay`).catch(() => {});
+
+	try {
+		globalShortcut.unregister('Alt+Shift+O');
+		globalShortcut.register('Alt+Shift+O', () => {
+			setOverlayGhostMode(!overlayGhostMode);
+		});
+	} catch {}
+
+	overlayWin.on('closed', () => {
+		overlayWin = null;
+		overlayHoveringInteractive = false;
+		try {
+			globalShortcut.unregister('Alt+Shift+O');
+		} catch {}
+	});
+
+	return true;
+}
+
+export function openCompanionWindow(opts: { targetUrl: string; preloadPath: string; iconPath: string; partition: string; streamerMode?: boolean; shouldOpenExternal?: () => boolean }): BrowserWindow {
+	const { workArea } = screen.getPrimaryDisplay();
+	const width = Math.min(1160, workArea.width - 80);
+	const height = Math.min(780, workArea.height - 80);
+	const offset = (BrowserWindow.getAllWindows().length % 5) * 28;
+	const appIcon = nativeImage.createFromPath(opts.iconPath);
+
+	const companionWin = new BrowserWindow({
+		width,
+		height,
+		x: workArea.x + 80 + offset,
+		y: workArea.y + 60 + offset,
+		roundedCorners: true,
+		frame: false,
+		transparent: false,
+		resizable: true,
+		autoHideMenuBar: true,
+		backgroundColor: '#09090b',
+		icon: appIcon.isEmpty() ? opts.iconPath : appIcon,
+		webPreferences: {
+			preload: opts.preloadPath,
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: false,
+			backgroundThrottling: true,
+			spellcheck: false,
+			partition: opts.partition,
+		},
+	});
+
+	try {
+		if (!appIcon.isEmpty()) companionWin.setIcon(appIcon);
+		companionWin.setContentProtection(Boolean(opts.streamerMode));
+	} catch {}
+
+	configureFramelessWindow(companionWin, {
+		preloadPath: opts.preloadPath,
+		iconPath: opts.iconPath,
+		getPartition: () => opts.partition,
+		shouldOpenExternal: opts.shouldOpenExternal || (() => true),
+	});
+
+	companionWin.loadURL(opts.targetUrl).catch(() => {});
+	companionWin.show();
+	companionWin.focus();
+	return companionWin;
+}
