@@ -1,0 +1,41 @@
+{
+	"name": "mobile",
+	"productName": "Crea-Accent Studio Mobile",
+	"version": "1.2.0",
+	"description": "Crea-Accent Studio — CRM, ERP, Agenda, Dossiers & Duotecno Mobile Companion (Android & iOS)",
+	"main": "index.js",
+	"scripts": {
+		"dev": "expo start --lan --port 8081",
+		"start": "expo start --lan --port 8081",
+		"android": "expo run:android",
+		"ios": "expo run:ios",
+		"expo:prebuild": "expo prebuild --no-install",
+		"build": "tsc --noEmit && node scripts/build-native.mjs verify",
+		"dist": "node scripts/build-native.mjs all",
+		"dist:android": "node scripts/build-native.mjs android",
+		"dist:ios": "node scripts/build-native.mjs ios",
+		"lint": "tsc --noEmit"
+	},
+	"author": "Crea-Accent",
+	"license": "MIT",
+	"packageManager": "pnpm@11.24.0",
+	"dependencies": {
+		"@react-native-async-storage/async-storage": "2.2.0",
+		"expo": "~58.0.23",
+		"expo-clipboard": "~58.0.4",
+		"expo-haptics": "~58.0.7",
+		"expo-linking": "~58.0.16",
+		"expo-local-authentication": "~58.0.2",
+		"expo-notifications": "~58.1.8",
+		"expo-status-bar": "~58.0.4",
+		"react": "19.3.0",
+		"react-native": "0.88.1",
+		"react-native-safe-area-context": "~5.11.1",
+		"react-native-webview": "14.0.1"
+	},
+	"devDependencies": {
+		"@babel/core": "^7.26.0",
+		"@types/react": "^19.3.0",
+		"typescript": "^6.0.3"
+	}
+}

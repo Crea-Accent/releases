@@ -1,0 +1,116 @@
+{
+	"name": "desktop",
+	"productName": "Crea-Accent Studio",
+	"version": "0.4.3",
+	"description": "Crea-Accent Studio — CRM, ERP, NAS & Duotecno Desktop Companion",
+	"main": "dist/main.js",
+	"type": "module",
+	"scripts": {
+		"build": "tsc",
+		"dist": "pnpm build && electron-builder --publish never",
+		"dev": "tsc && electron ."
+	},
+	"author": "Crea-Accent",
+	"license": "MIT",
+	"packageManager": "pnpm@11.24.0",
+	"dependencies": {
+		"electron-store": "^12.0.0",
+		"electron-updater": "^6.8.11"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"electron": "45.0.0",
+		"electron-builder": "^26.18.0",
+		"typescript": "^6.0.3"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"electron",
+			"electron-winstaller",
+			"esbuild"
+		]
+	},
+	"build": {
+		"nodeGypRebuild": false,
+		"buildDependenciesFromSource": false,
+		"asar": true,
+		"asarUnpack": [
+			"public/**/*"
+		],
+		"npmRebuild": true,
+		"appId": "CreaAccent.Studio.Desktop",
+		"productName": "Crea-Accent Studio",
+		"icon": "public/icon.png",
+		"compression": "maximum",
+		"files": [
+			"dist/**/*",
+			"pages/**/*",
+			"public/**/*",
+			"package.json",
+			"!**/.env*",
+			"!**/*.map",
+			"!**/*.ts",
+			"!**/*.cts"
+		],
+		"extraResources": [
+			{
+				"from": "metadata.json",
+				"to": "metadata.json"
+			},
+			{
+				"from": "public/icon.ico",
+				"to": "icon.ico"
+			}
+		],
+		"publish": [
+			{
+				"provider": "github",
+				"owner": "Crea-Accent",
+				"repo": "releases",
+				"releaseType": "release"
+			}
+		],
+		"electronLanguages": [
+			"en"
+		],
+		"directories": {
+			"output": "release"
+		},
+		"win": {
+			"target": "nsis",
+			"icon": "public/icon.ico",
+			"artifactName": "Crea-Accent-Studio-${version}-setup.${ext}"
+		},
+		"mac": {
+			"target": [
+				{
+					"target": "dmg",
+					"arch": [
+						"arm64"
+					]
+				}
+			],
+			"artifactName": "Crea-Accent-Studio-${version}-setup.${ext}"
+		},
+		"linux": {
+			"target": "AppImage",
+			"artifactName": "Crea-Accent-Studio-${version}-setup.${ext}",
+			"executableName": "crea-accent-studio"
+		},
+		"nsis": {
+			"oneClick": false,
+			"differentialPackage": true,
+			"perMachine": false,
+			"allowToChangeInstallationDirectory": true,
+			"runAfterFinish": true,
+			"createDesktopShortcut": true,
+			"createStartMenuShortcut": true,
+			"shortcutName": "Crea-Accent Studio",
+			"installerIcon": "public/icon.ico",
+			"uninstallerIcon": "public/icon.ico",
+			"installerSidebar": "public/banner.bmp",
+			"uninstallerSidebar": "public/banner.bmp"
+		}
+	},
+	"private": true
+}
