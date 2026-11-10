@@ -1,0 +1,14 @@
+{
+	"debug": false,
+	"startupTab": "home",
+	"biometricLock": false,
+	"pushNotifications": true,
+	"dailyWorkOrderReminder": true,
+	"batterySaver": true,
+	"hapticFeedback": true,
+	"autoSwitchLocalLan": true,
+	"openExternalInBrowser": true,
+	"themeMode": "dark",
+	"accentColor": "#a4b795",
+	"domain": "crea-accent.app"
+}
