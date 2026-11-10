@@ -1,0 +1,193 @@
+# @format
+
+name: Release Mobile App
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - 'mobile/**'
+            - '.github/workflows/release-mobile.yml'
+        tags:
+            - 'mobile@*'
+    workflow_dispatch:
+
+concurrency:
+    group: public-mobile-release
+    cancel-in-progress: true
+
+env:
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+    contents: write
+
+jobs:
+    release-android:
+        name: Build & Publish Android (.apk)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+
+            - name: Setup Java 17
+              uses: actions/setup-java@v5
+              with:
+                  distribution: 'temurin'
+                  java-version: '17'
+
+            - name: Build & Publish Mobile APK
+              env:
+                  CI: '1'
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+                  export ANDROID_SDK_ROOT="$ANDROID_HOME"
+                  mkdir -p "$ANDROID_HOME"
+
+                  CMDLINE_BIN=""
+                  for candidate in \
+                      "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+                      "$ANDROID_HOME/cmdline-tools/"*/bin/sdkmanager \
+                      "$ANDROID_HOME/tools/bin/sdkmanager"; do
+                      if [ -x "$candidate" ]; then
+                          CMDLINE_BIN="$candidate"
+                          break
+                      fi
+                  done
+
+                  if [ -z "$CMDLINE_BIN" ]; then
+                      echo "Installing Android SDK Command-Line Tools..."
+                      mkdir -p "$ANDROID_HOME/cmdline-tools"
+                      curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip
+                      unzip -q -o /tmp/cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
+                      rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+                      mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+                      CMDLINE_BIN="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+                  fi
+
+                  yes | "$CMDLINE_BIN" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || true
+
+                  VERSION=$(node -p "require('./mobile/package.json').version")
+                  TAG_NAME="mobile@${VERSION}"
+
+                  BUILD_DIR="/tmp/crea-mobile-build"
+                  rm -rf "$BUILD_DIR"
+                  mkdir -p "$BUILD_DIR"
+                  cp -R mobile/. "$BUILD_DIR/"
+
+                  cd "$BUILD_DIR"
+                  npm install --legacy-peer-deps --no-audit --no-fund
+                  npx expo prebuild --platform android --clean --no-install
+                  echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+                  cd android
+                  chmod +x gradlew
+                  NODE_ENV=production ./gradlew assembleRelease \
+                      --no-daemon \
+                      -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
+                      -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+
+                  APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+                  if [ -z "$APK_PATH" ]; then
+                      echo "::error::No release APK produced by Gradle"
+                      exit 1
+                  fi
+
+                  OUT_APK="/tmp/Crea-Accent-Studio-Mobile-${VERSION}.apk"
+                  cp "$APK_PATH" "$OUT_APK"
+
+                  for i in 1 2 3 4; do
+                    if gh release view "${TAG_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+                      break
+                    fi
+                    gh release create "${TAG_NAME}" \
+                      --repo "${{ github.repository }}" \
+                      --target "${{ github.sha }}" \
+                      --title "Mobile ${TAG_NAME}" \
+                      --notes "Official Mobile release for Crea-Accent Studio (${TAG_NAME})." \
+                      --draft=false \
+                      --prerelease=false \
+                      --latest=false >/dev/null 2>&1 || sleep 2
+                  done
+
+                  echo "Uploading ${OUT_APK} to ${TAG_NAME}..."
+                  gh release upload "${TAG_NAME}" "${OUT_APK}" --repo "${{ github.repository }}" --clobber
+
+    release-ios:
+        name: Build & Publish iOS (.ipa)
+        runs-on: macos-14
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+
+            - name: Build & Publish Mobile IPA
+              env:
+                  CI: '1'
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  VERSION=$(node -p "require('./mobile/package.json').version")
+                  TAG_NAME="mobile@${VERSION}"
+
+                  BUILD_DIR="/tmp/crea-mobile-ios-build"
+                  rm -rf "$BUILD_DIR"
+                  mkdir -p "$BUILD_DIR"
+                  cp -R mobile/. "$BUILD_DIR/"
+
+                  cd "$BUILD_DIR"
+                  npm install --legacy-peer-deps --no-audit --no-fund
+                  npx expo prebuild --platform ios --clean --no-install || true
+
+                  PROJECT_PATH=$(find ios -maxdepth 1 -name "*.xcodeproj" 2>/dev/null | head -n 1)
+                  if [ -n "$PROJECT_PATH" ]; then
+                      SCHEME_NAME=$(basename "$PROJECT_PATH" .xcodeproj)
+                      xcodebuild -project "$PROJECT_PATH" \
+                          -scheme "$SCHEME_NAME" \
+                          -configuration Release \
+                          -sdk iphoneos \
+                          -derivedDataPath ios/build \
+                          CODE_SIGNING_ALLOWED=NO \
+                          CODE_SIGNING_REQUIRED=NO \
+                          CODE_SIGN_IDENTITY="" \
+                          AD_HOC_CODE_SIGNING_ALLOWED=YES \
+                          build >/dev/null 2>&1 || true
+                  fi
+
+                  OUT_IPA="/tmp/Crea-Accent-Studio-Mobile-${VERSION}.ipa"
+                  APP_BUNDLE=$(find ios/build -name "*.app" -type d 2>/dev/null | head -n 1)
+
+                  if [ -n "$APP_BUNDLE" ] && [ -d "$APP_BUNDLE" ]; then
+                      rm -rf /tmp/ipa-payload
+                      mkdir -p /tmp/ipa-payload/Payload
+                      cp -R "$APP_BUNDLE" /tmp/ipa-payload/Payload/
+                      (cd /tmp/ipa-payload && zip -r -q "$OUT_IPA" Payload)
+                  else
+                      TARGET_VERSION="${VERSION}" node scripts/build-native.mjs ios
+                      cp "release/Crea-Accent-Studio-Mobile-${VERSION}.ipa" "$OUT_IPA"
+                  fi
+
+                  for i in 1 2 3 4; do
+                    if gh release view "${TAG_NAME}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+                      break
+                    fi
+                    gh release create "${TAG_NAME}" \
+                      --repo "${{ github.repository }}" \
+                      --target "${{ github.sha }}" \
+                      --title "Mobile ${TAG_NAME}" \
+                      --notes "Official Mobile release for Crea-Accent Studio (${TAG_NAME})." \
+                      --draft=false \
+                      --prerelease=false \
+                      --latest=false >/dev/null 2>&1 || sleep 2
+                  done
+
+                  echo "Uploading ${OUT_IPA} to ${TAG_NAME}..."
+                  gh release upload "${TAG_NAME}" "${OUT_IPA}" --repo "${{ github.repository }}" --clobber
