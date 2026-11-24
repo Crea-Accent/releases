@@ -1,0 +1,8 @@
+# @format
+
+allowBuilds:
+    electron: true
+    electron-winstaller: true
+    esbuild: true
+    app-builder-bin: true
+    7zip-bin: true
