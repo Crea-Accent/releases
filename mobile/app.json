@@ -1,0 +1,65 @@
+{
+	"expo": {
+		"name": "Crea-Accent Studio",
+		"slug": "crea-accent-studio-mobile",
+		"version": "1.0.0",
+		"orientation": "default",
+		"icon": "./public/icon.png",
+		"scheme": "crea-accent",
+		"userInterfaceStyle": "automatic",
+		"newArchEnabled": false,
+		"splash": {
+			"image": "./public/logo.png",
+			"resizeMode": "contain",
+			"backgroundColor": "#09090b"
+		},
+		"ios": {
+			"supportsTablet": true,
+			"bundleIdentifier": "app.creaaccent.studio.mobile",
+			"buildNumber": "1",
+			"associatedDomains": ["applinks:app.crea-accent.app", "applinks:account.crea-accent.app", "applinks:portal.crea-accent.app"],
+			"infoPlist": {
+				"NSFaceIDUsageDescription": "Use Face ID or Touch ID to unlock the Crea-Accent Studio privacy shield and verify sensitive actions.",
+				"NSCameraUsageDescription": "Use the camera to scan QR device pairing codes and capture site photos for Dossiers.",
+				"NSPhotoLibraryUsageDescription": "Select photos from your library to attach to Werkbonnen and Dossiers.",
+				"UIBackgroundModes": ["remote-notification", "fetch"]
+			}
+		},
+		"android": {
+			"package": "app.creaaccent.studio.mobile",
+			"versionCode": 1,
+			"adaptiveIcon": {
+				"foregroundImage": "./public/icon.png",
+				"backgroundColor": "#09090b"
+			},
+			"permissions": ["INTERNET", "ACCESS_NETWORK_STATE", "CAMERA", "USE_BIOMETRIC", "USE_FINGERPRINT", "VIBRATE", "RECEIVE_BOOT_COMPLETED", "POST_NOTIFICATIONS", "REQUEST_INSTALL_PACKAGES"],
+			"intentFilters": [
+				{
+					"action": "VIEW",
+					"autoVerify": true,
+					"data": [
+						{
+							"scheme": "https",
+							"host": "app.crea-accent.app",
+							"pathPrefix": "/"
+						},
+						{
+							"scheme": "https",
+							"host": "account.crea-accent.app",
+							"pathPrefix": "/login/qr"
+						},
+						{
+							"scheme": "crea-accent"
+						}
+					],
+					"category": ["BROWSABLE", "DEFAULT"]
+				}
+			]
+		},
+		"extra": {
+			"releaseChannel": "stable",
+			"domain": "crea-accent.app",
+			"appId": "CreaAccent.Studio.Mobile"
+		}
+	}
+}
